@@ -39,15 +39,16 @@ class OffboardControl(Node):
         self.offboard_setpoint_counter = 0
         self.vehicle_local_position = VehicleLocalPosition()
         self.vehicle_status = VehicleStatus()
-        self.waypoints =[[0.0,0.0,-1.0],
-                         [-1.0,-1.0,-1.0],
-                         [-1.0,5.0,-1.0],
-                         [3.5,5.0,-1.0],
-                         [3.5,0.5,-1.0],
-                         [2.0,0.5,-1.0],
-                         [2.0,2.0,-1.0],
-                         [0.5,2.0,-1.0],
-                         [0.5,-1.0,-1.0]
+        self.waypoints =[[0.0,0.0,-1.0,1.57],
+                         [-1.0,-1.0,-1.0,1.57],
+                         [-1.0,5.0,-1.0,1.57],
+                         [3.5,5.0,-1.0,0.0],
+                         [3.5,0.5,-1.0,-1.57],
+                         [2.0,0.5,-1.0,-3.14],
+                         [2.0,2.0,-1.0,1.57],
+                         [0.5,2.0,-1.0,-3.14],
+                         [0.5,-1.0,-1.0,-1.57],
+                         [0.0,0.0,-1.0,1.57]
                          ]
         self.current_wp_index = 0       # 当前正在前往的航点索引
         self.acceptance_radius = 0.3
@@ -97,14 +98,14 @@ class OffboardControl(Node):
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.offboard_control_mode_publisher.publish(msg)
 
-    def publish_position_setpoint(self, x: float, y: float, z: float):
+    def publish_position_setpoint(self, x: float, y: float, z: float,yaw: float ):
         """Publish the trajectory setpoint."""
         msg = TrajectorySetpoint()
         msg.position = [x, y, z]
-        msg.yaw = 1.57079  # (90 degree)
+        msg.yaw = yaw
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.trajectory_setpoint_publisher.publish(msg)
-        self.get_logger().info(f"Publishing position setpoints {[x, y, z]}")
+        self.get_logger().info(f"Publishing position setpoints {[x, y, z]},publishing yaw {yaw}")
 
     def publish_vehicle_command(self, command, **params) :
         """Publish a vehicle command."""
@@ -126,11 +127,12 @@ class OffboardControl(Node):
         self.vehicle_command_publisher.publish(msg)
 
 
-    def get_distance_to_target(self, target_x, target_y, target_z):
+    def get_distance_to_target(self, target_x, target_y, target_z,target_yaw) :
         dx = self.vehicle_local_position.x - target_x
         dy = self.vehicle_local_position.y - target_y
         dz = self.vehicle_local_position.z - target_z
-        return math.sqrt(dx**2 + dy**2 + dz**2)
+        dyaw = self.vehicle_local_position.heading - target_yaw
+        return math.sqrt(dx**2 + dy**2 + dz**2+ dyaw**2)
 
     def timer_callback(self) :
         """Callback function for the timer."""
@@ -146,10 +148,10 @@ class OffboardControl(Node):
                 target = self.waypoints[self.current_wp_index]
             
             # 持续发送当前目标航点位置
-                self.publish_position_setpoint(target[0], target[1], target[2])
+                self.publish_position_setpoint(target[0], target[1], target[2],target[3])
 
             # 计算距离
-                distance = self.get_distance_to_target(target[0], target[1], target[2])
+                distance = self.get_distance_to_target(target[0], target[1], target[2],target[3])
                 self.get_logger().info(f"还差{distance}")
             
             # 如果距离小于判定半径，说明已经到达该点
