@@ -40,15 +40,17 @@ class OffboardControl(Node):
         self.vehicle_local_position = VehicleLocalPosition()
         self.vehicle_status = VehicleStatus()
         self.waypoints =[[0.0,0.0,-1.0],
-                         [0.0,6.0,-1.0],
-                         [4.5,6.0,-1.0],
-                         [4.5,1.5,-1.0],
-                         [3.0,3.0,-1.0],
-                         [1.5,3.0,-1.0],
-                         [1.5,0.0,-1.0],
-                         [0.0,0.0,-1.0]]
+                         [-1.0,-1.0,-1.0],
+                         [-1.0,5.0,-1.0],
+                         [3.5,5.0,-1.0],
+                         [3.5,0.5,-1.0],
+                         [2.0,0.5,-1.0],
+                         [2.0,2.0,-1.0],
+                         [0.5,2.0,-1.0],
+                         [0.5,-1.0,-1.0]
+                         ]
         self.current_wp_index = 0       # 当前正在前往的航点索引
-        self.acceptance_radius = 0.1
+        self.acceptance_radius = 0.3
 
         # Create a timer to publish control commands
         self.timer = self.create_timer(0.1, self.timer_callback)
@@ -56,7 +58,6 @@ class OffboardControl(Node):
     def vehicle_local_position_callback(self, vehicle_local_position):
         """Callback function for vehicle_local_position topic subscriber."""
         self.vehicle_local_position = vehicle_local_position
-        self.get_logger().info(f"当前位置是{self.vehicle_local_position.x}")
 
     def vehicle_status_callback(self, vehicle_status):
         """Callback function for vehicle_status topic subscriber."""
