@@ -31,7 +31,7 @@ class QuadrotorMPC(Node):
         self.waypoints = [[0.0, 0.0, 1.0, 1.57],[-1.0, -1.0, 1.0, 1.57],[5.0, -1.0, 1.0, 1.57],[5.0,3.5, 1.0, 0.0],[0.5, 3.5, 1.0, -1.57],[0.5, 2.0, 1.0, -3.14],[2.0, 2.0, 1.0, 1.57],[2.0, 0.5, 1.0, -3.14],[-1.0, 0.5, 1.0, -1.57]
         ]
         self.current_wp_index = 0
-        self.acceptance_radius = 0.5
+        self.acceptance_radius = 0.3
         self.is_mission_finished = False
         # ------------------------------------------
 
@@ -44,14 +44,15 @@ class QuadrotorMPC(Node):
         )
         qos_profile_sub = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
-            durability=QoSDurabilityPolicy.VOLATILE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1
         )
 
         # Subscribers
+        self.vehicle_status_sub = self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status_v1', self.vehicle_status_callback, qos_profile_sub)
         self.attitude_sub = self.create_subscription(VehicleAttitude, '/fmu/out/vehicle_attitude', self.vehicle_attitude_callback, qos_profile_sub)
-        self.local_position_sub = self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position_v1', self.vehicle_local_position_callback, qos_profile_sub)
+        self.local_position_sub = self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position', self.vehicle_local_position_callback, qos_profile_sub)
 
         # Publishers
         self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile_pub)
@@ -62,6 +63,7 @@ class QuadrotorMPC(Node):
         # Timer (50Hz)
         timer_period = 0.02
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
+        self.nav_state =VehicleStatus.NAVIGATION_STATE_MANUAL # 初始状态设为手动喵！
 
         # Create MPC
         self.model = MultirotorRateModel()
@@ -74,6 +76,9 @@ class QuadrotorMPC(Node):
         
         # 初始目标点设为第一个航点喵！
         self.setpoint_position = np.array([self.waypoints[0][0], self.waypoints[0][1], self.waypoints[0][2]])
+    def vehicle_status_callback(self, msg):
+        self.nav_state = msg.nav_state
+        self.get_logger().info(f"当前飞行模式: {self.nav_state}")
 
     def vehicle_attitude_callback(self, msg):
         q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
@@ -99,7 +104,7 @@ class QuadrotorMPC(Node):
         offboard_msg.body_rate = True
         self.publisher_offboard_mode.publish(offboard_msg)
         # --- 喵！这里是小菲植入的航点逻辑大脑 ---
-        if not self.is_mission_finished:
+        if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD and not self.is_mission_finished:
             self.get_logger().info("喵！飞行中，正在前往航点...")
             if self.current_wp_index < len(self.waypoints):
                 target = self.waypoints[self.current_wp_index]
