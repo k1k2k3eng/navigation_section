@@ -345,7 +345,7 @@
                 0.0,
                 0.0,
                 0.0,
-                20.0,
+                100.0,
                 0.0,
                 0.0,
                 0.0
@@ -571,7 +571,7 @@
                 0.0,
                 0.0,
                 0.0,
-                20.0,
+                100.0,
                 0.0,
                 0.0,
                 0.0
@@ -783,7 +783,7 @@
             0.0,
             0.0,
             0.0,
-            1.0,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -799,7 +799,7 @@
             0.0,
             0.0,
             0.0,
-            1.0,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -886,7 +886,7 @@
         "multirotor_rate_model_cost/multirotor_rate_model_cost_y_e_fun_jac_ut_xt.c",
         "multirotor_rate_model_cost/multirotor_rate_model_cost_y_e_hess.c"
     ],
-    "hash": "17fcb003974cc978c109306723ca6a3e",
+    "hash": "bd993b0740b2da8a0294cebb80748224",
     "model": {
         "con_h_expr": [],
         "con_h_expr_0": [],

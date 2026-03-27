@@ -77,7 +77,7 @@ class MultirotorRateMPC():
         # set cost
         Q_mat = 2*np.diag([1e1, 1e1, 1e1, 1e1, 1e1, 1e1, 0.0, 0.1, 0.1, 0.1])
         Q_e = 2*np.diag([3e2, 3e2, 3e2, 1e2, 1e2, 1e2, 0.0, 0.0, 0.0, 0.0])
-        R_mat = 2*np.diag([1e1, 5e2, 5e2, 5e2])
+        R_mat = 2*np.diag([5e1, 5e2, 5e2, 5e2])
 
         # TODO: How do you add terminal costs?
 
@@ -96,7 +96,8 @@ class MultirotorRateMPC():
 
         ocp.model.cost_y_expr = cs.vertcat(model.x, model.u)
         ocp.model.cost_y_expr_e = model.x
-        ocp.cost.yref  = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        hover_thrust_N = self.model.mass * 9.81
+        ocp.cost.yref  = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         ocp.cost.yref_e = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
 
         # set constraints

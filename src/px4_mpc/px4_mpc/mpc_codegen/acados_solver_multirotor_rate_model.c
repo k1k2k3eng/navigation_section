@@ -512,7 +512,6 @@ void multirotor_rate_model_acados_setup_nlp_in(multirotor_rate_model_solver_caps
     /**** Cost ****/
     double* yref_0 = calloc(NY0, sizeof(double));
     // change only the non-zero elements:
-    yref_0[6] = 1;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "yref", yref_0);
     free(yref_0);
 
@@ -527,7 +526,7 @@ void multirotor_rate_model_acados_setup_nlp_in(multirotor_rate_model_solver_caps
     W_0[7+(NY0) * 7] = 0.2;
     W_0[8+(NY0) * 8] = 0.2;
     W_0[9+(NY0) * 9] = 0.2;
-    W_0[10+(NY0) * 10] = 20;
+    W_0[10+(NY0) * 10] = 100;
     W_0[11+(NY0) * 11] = 1000;
     W_0[12+(NY0) * 12] = 1000;
     W_0[13+(NY0) * 13] = 1000;
@@ -535,7 +534,6 @@ void multirotor_rate_model_acados_setup_nlp_in(multirotor_rate_model_solver_caps
     free(W_0);
     double* yref = calloc(NY, sizeof(double));
     // change only the non-zero elements:
-    yref[6] = 1;
 
     for (int i = 1; i < N; i++)
     {
@@ -553,7 +551,7 @@ void multirotor_rate_model_acados_setup_nlp_in(multirotor_rate_model_solver_caps
     W[7+(NY) * 7] = 0.2;
     W[8+(NY) * 8] = 0.2;
     W[9+(NY) * 9] = 0.2;
-    W[10+(NY) * 10] = 20;
+    W[10+(NY) * 10] = 100;
     W[11+(NY) * 11] = 1000;
     W[12+(NY) * 12] = 1000;
     W[13+(NY) * 13] = 1000;
