@@ -36,7 +36,6 @@ from rosbags.typesys import get_types_from_msg, get_typestore, Stores
 typestore = get_typestore(Stores.LATEST)
 
 # Define PX4 message types for rosbags
-# Based on PX4 message definitions
 VEHICLE_RATES_SETPOINT_MSG = """
 uint64 timestamp
 float32 roll
@@ -46,8 +45,15 @@ float32[3] thrust_body
 float32 reset_integral
 """
 
+VEHICLE_THRUST_SETPOINT_MSG = """
+uint64 timestamp
+float32[3] xyz
+"""
+
 # Register the custom types
 add_types = get_types_from_msg(VEHICLE_RATES_SETPOINT_MSG, 'px4_msgs/msg/VehicleRatesSetpoint')
+typestore.register(add_types)
+add_types = get_types_from_msg(VEHICLE_THRUST_SETPOINT_MSG, 'px4_msgs/msg/VehicleThrustSetpoint')
 typestore.register(add_types)
 
 def parse_rosbag(bag_path):
@@ -57,35 +63,47 @@ def parse_rosbag(bag_path):
     data = []
     bag_name = Path(bag_path).name
     try:
-        # AnyReader works with a list of bag paths
         with AnyReader([Path(bag_path)], default_typestore=typestore) as reader:
-            topic_name = '/fmu/in/vehicle_rates_setpoint'
+            # Possible topics for thrust data (Input for MPC, Output for PID)
+            candidate_topics = [
+                '/fmu/in/vehicle_rates_setpoint',
+                '/fmu/out/vehicle_rates_setpoint',
+                '/fmu/out/vehicle_thrust_setpoint'
+            ]
             
-            # Find the connection for the topic
-            connections = [c for c in reader.connections if c.topic == topic_name]
+            # Find which topics actually exist in this bag
+            connections = [c for c in reader.connections if c.topic in candidate_topics]
             if not connections:
-                print(f"Warning: Topic {topic_name} not found in {bag_path}")
+                print(f"Warning: No thrust-related topics found in {bag_path}")
                 return None
 
-            for connection, timestamp, rawdata in reader.messages(connections=connections):
+            # Sort connections to prioritize certain topics if multiple exist
+            # (e.g., prefer RatesSetpoint over ThrustSetpoint if both are there)
+            connections.sort(key=lambda c: candidate_topics.index(c.topic))
+            best_connection = connections[0]
+            print(f"  Reading from topic: {best_connection.topic}")
+
+            for connection, timestamp, rawdata in reader.messages(connections=[best_connection]):
                 msg = reader.deserialize(rawdata, connection.msgtype)
                 
-                # Extract data
-                thrust_x = msg.thrust_body[0]
-                thrust_y = msg.thrust_body[1]
-                thrust_z = msg.thrust_body[2]
-                thrust_magnitude = np.sqrt(thrust_x**2 + thrust_y**2 + thrust_z**2)
+                # Extract data based on message type
+                if 'VehicleRatesSetpoint' in connection.msgtype:
+                    tx, ty, tz = msg.thrust_body
+                elif 'VehicleThrustSetpoint' in connection.msgtype:
+                    tx, ty, tz = msg.xyz
+                else:
+                    continue
+                
+                thrust_magnitude = np.sqrt(tx**2 + ty**2 + tz**2)
                 
                 data.append({
-                    'timestamp': msg.timestamp / 1e6,  # Convert to seconds
-                    'thrust_x': thrust_x,
-                    'thrust_y': thrust_y,
-                    'thrust_z': thrust_z,
+                    'timestamp': msg.timestamp / 1e6,
+                    'thrust_x': tx,
+                    'thrust_y': ty,
+                    'thrust_z': tz,
                     'thrust_mag': thrust_magnitude,
-                    'roll_rate': msg.roll,
-                    'pitch_rate': msg.pitch,
-                    'yaw_rate': msg.yaw,
-                    'bag_name': bag_name
+                    'bag_name': bag_name,
+                    'mode': 'PID' if 'out' in connection.topic else 'MPC'
                 })
     except Exception as e:
         print(f"Error reading {bag_path}: {e}")
@@ -132,13 +150,14 @@ def plot_results(all_data, output_dir, file_formats=['png', 'pdf', 'eps', 'tiff'
     
     if len(unique_bags) > 1:
         # Multiple bags: Plot each one as a separate line
-        sns.lineplot(data=combined_df, x='time', y='thrust_mag', hue='bag_name', ax=ax)
-        plt.title('MPC Thrust Performance Comparison')
+        sns.lineplot(data=combined_df, x='time', y='thrust_mag', hue='bag_name', style='mode', ax=ax)
+        plt.title('MPC vs PID Thrust Performance Comparison')
     else:
         # Single bag: Plot magnitude and components
-        sns.lineplot(data=combined_df, x='time', y='thrust_mag', ax=ax, label='Total Thrust Magnitude')
+        mode = combined_df['mode'].iloc[0]
+        sns.lineplot(data=combined_df, x='time', y='thrust_mag', ax=ax, label=f'Total Thrust ({mode})')
         sns.lineplot(data=combined_df, x='time', y='thrust_z', ax=ax, label='Thrust Z-axis', alpha=0.7, linestyle='--')
-        plt.title(f'MPC Thrust Performance: {unique_bags[0]}')
+        plt.title(f'Thrust Performance ({mode}): {unique_bags[0]}')
 
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Thrust [Normalized]')
