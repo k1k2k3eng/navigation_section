@@ -14,11 +14,6 @@ __pycache__/
 # Editors
 *~
 
-# ROS 2 bag files
-*.db3
-metadata.yaml
-*.bag
-
 # Plot outputs
 plots/
 test_plots/
