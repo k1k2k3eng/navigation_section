@@ -6,7 +6,8 @@ This script reads ROS 2 bag files (sqlite3 format), extracts thrust data from
 
 Features:
 - High-resolution (300 DPI) output in PDF, EPS, PNG, and TIFF formats.
-- Supports multiple bag files with automatic mean and standard deviation shading.
+- Supports multiple bag files with automatic labeling and comparison.
+- Interactive selection of bag files if multiple are found.
 - Publication-ready styling (serif fonts, clear labels, grid).
 
 Usage:
@@ -18,7 +19,7 @@ Usage:
     --formats: List of output formats (e.g., --formats png pdf).
 
 Dependencies:
-    pip install pandas numpy matplotlib seaborn scipy rosbags pyyaml
+    pip install -r ../../requirements.txt
 """
 
 import os
@@ -54,6 +55,7 @@ def parse_rosbag(bag_path):
     Parse a single ROS 2 bag file and extract thrust data.
     """
     data = []
+    bag_name = Path(bag_path).name
     try:
         # AnyReader works with a list of bag paths
         with AnyReader([Path(bag_path)], default_typestore=typestore) as reader:
@@ -69,27 +71,24 @@ def parse_rosbag(bag_path):
                 msg = reader.deserialize(rawdata, connection.msgtype)
                 
                 # Extract data
-                # thrust_body is float32[3] -> [x, y, z]
-                # Usually for multirotors, thrust is mainly in z
                 thrust_x = msg.thrust_body[0]
                 thrust_y = msg.thrust_body[1]
                 thrust_z = msg.thrust_body[2]
                 thrust_magnitude = np.sqrt(thrust_x**2 + thrust_y**2 + thrust_z**2)
                 
                 data.append({
-                    'timestamp': msg.timestamp / 1e6,  # Convert to seconds if it's microseconds
+                    'timestamp': msg.timestamp / 1e6,  # Convert to seconds
                     'thrust_x': thrust_x,
                     'thrust_y': thrust_y,
                     'thrust_z': thrust_z,
                     'thrust_mag': thrust_magnitude,
                     'roll_rate': msg.roll,
                     'pitch_rate': msg.pitch,
-                    'yaw_rate': msg.yaw
+                    'yaw_rate': msg.yaw,
+                    'bag_name': bag_name
                 })
     except Exception as e:
-        import traceback
         print(f"Error reading {bag_path}: {e}")
-        traceback.print_exc()
         return None
 
     if not data:
@@ -123,21 +122,23 @@ def plot_results(all_data, output_dir, file_formats=['png', 'pdf', 'eps', 'tiff'
         "savefig.dpi": 300
     })
 
-    # Combine all dataframes into one for seaborn processing
-    combined_df = pd.concat(all_data, keys=range(len(all_data)), names=['run_id', 'index']).reset_index()
+    # Combine all dataframes
+    combined_df = pd.concat(all_data).reset_index(drop=True)
 
     # Create the plot
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Plot thrust magnitude with error shades if multiple runs exist
-    if len(all_data) > 1:
-        sns.lineplot(data=combined_df, x='time', y='thrust_mag', ax=ax, label='Thrust Magnitude (Mean)', errorbar='sd')
-        plt.title('MPC Thrust Performance (Multiple Runs)')
+    unique_bags = combined_df['bag_name'].unique()
+    
+    if len(unique_bags) > 1:
+        # Multiple bags: Plot each one as a separate line
+        sns.lineplot(data=combined_df, x='time', y='thrust_mag', hue='bag_name', ax=ax)
+        plt.title('MPC Thrust Performance Comparison')
     else:
-        sns.lineplot(data=combined_df, x='time', y='thrust_mag', ax=ax, label='Thrust Magnitude')
-        # Also plot components if single run
-        sns.lineplot(data=combined_df, x='time', y='thrust_z', ax=ax, label='Thrust Z', alpha=0.7, linestyle='--')
-        plt.title('MPC Thrust Performance')
+        # Single bag: Plot magnitude and components
+        sns.lineplot(data=combined_df, x='time', y='thrust_mag', ax=ax, label='Total Thrust Magnitude')
+        sns.lineplot(data=combined_df, x='time', y='thrust_z', ax=ax, label='Thrust Z-axis', alpha=0.7, linestyle='--')
+        plt.title(f'MPC Thrust Performance: {unique_bags[0]}')
 
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Thrust [Normalized]')
@@ -146,51 +147,81 @@ def plot_results(all_data, output_dir, file_formats=['png', 'pdf', 'eps', 'tiff'
     # Save plots
     os.makedirs(output_dir, exist_ok=True)
     base_name = 'thrust_analysis'
+    if len(unique_bags) == 1:
+        base_name += f"_{unique_bags[0]}"
     
     for fmt in file_formats:
         save_path = os.path.join(output_dir, f"{base_name}.{fmt}")
         plt.savefig(save_path, format=fmt, bbox_inches='tight', dpi=300)
         print(f"Saved: {save_path}")
 
+    print(f"\nPlots generated in: {os.path.abspath(output_dir)}")
     plt.show()
+
+def find_bag_folders(base_path):
+    """Recursively find folders containing metadata.yaml."""
+    bags = []
+    p = Path(base_path)
+    if (p / 'metadata.yaml').exists():
+        bags.append(p)
+    else:
+        for item in p.iterdir():
+            if item.is_dir() and (item / 'metadata.yaml').exists():
+                bags.append(item)
+    return sorted(bags)
 
 def main():
     parser = argparse.ArgumentParser(description='Process ROS 2 bags and plot thrust data for publication.')
-    parser.add_argument('--input', type=str, default='mpc_energy_test', help='Path to the directory containing ROS 2 bag folders.')
-    parser.add_argument('--output', type=str, default='plots', help='Directory to save the generated plots.')
-    parser.add_argument('--formats', nargs='+', default=['png', 'pdf', 'eps', 'tiff'], help='Output formats (png, pdf, eps, tiff).')
+    parser.add_argument('--input', type=str, default=None, help='Path to bag folder or parent directory.')
+    parser.add_argument('--output', type=str, default='plots', help='Directory to save plots.')
+    parser.add_argument('--formats', nargs='+', default=['png', 'pdf', 'eps', 'tiff'], help='Output formats.')
     
     args = parser.parse_args()
 
-    input_path = Path(args.input)
-    if not input_path.exists():
-        print(f"Error: Input path {input_path} does not exist.")
-        return
-
-    # Find all ROS 2 bags (folders containing metadata.yaml)
-    bag_folders = []
-    if (input_path / 'metadata.yaml').exists():
-        bag_folders.append(input_path)
-    else:
-        # Search subdirectories
-        for item in input_path.iterdir():
-            if item.is_dir() and (item / 'metadata.yaml').exists():
-                bag_folders.append(item)
+    # If no input, use current directory
+    search_path = args.input if args.input else '.'
+    
+    bag_folders = find_bag_folders(search_path)
 
     if not bag_folders:
-        print(f"No ROS 2 bag folders found in {input_path}")
+        print(f"No ROS 2 bag folders found in '{search_path}'.")
         return
 
-    print(f"Found {len(bag_folders)} bag(s). Parsing...")
+    selected_bags = []
+    if len(bag_folders) > 1 and not args.input:
+        # Multiple bags found in current dir, let user choose
+        print("\nMultiple ROS bags found:")
+        for i, folder in enumerate(bag_folders):
+            print(f"[{i}] {folder.name}")
+        print(f"[{len(bag_folders)}] ALL (Plot all in one graph)")
+        
+        try:
+            choice = input(f"\nSelect a bag to plot (0-{len(bag_folders)}): ").strip()
+            idx = int(choice)
+            if idx == len(bag_folders):
+                selected_bags = bag_folders
+            elif 0 <= idx < len(bag_folders):
+                selected_bags = [bag_folders[idx]]
+            else:
+                print("Invalid selection.")
+                return
+        except ValueError:
+            print("Invalid input.")
+            return
+    else:
+        # Single bag found or input path specified
+        selected_bags = bag_folders
+
+    print(f"\nProcessing {len(selected_bags)} bag(s)...")
 
     all_dfs = []
-    for bag in bag_folders:
+    for bag in selected_bags:
         df = parse_rosbag(str(bag))
         if df is not None:
             all_dfs.append(df)
 
     if not all_dfs:
-        print("Failed to extract data from any bag.")
+        print("No valid data extracted.")
         return
 
     print("Generating plots...")
