@@ -28,11 +28,14 @@ class QuadrotorMPC(Node):
 
         self.waypoints = [[0.0, 0.0, 1.0, 1.57],[-1.0, -1.0, 1.0, 1.57],[5.0, -1.0, 1.0, 1.57],[5.0, 3.5, 1.0, 0.0],[0.5, 3.5, 1.0, -1.57],[0.5, 2.0, 1.0, -3.14],[2.0, 2.0, 1.0, 1.57],[2.0, 0.5, 1.0, -3.14],[-1.0, 0.5, 1.0, -1.57]]
         self.current_wp_index = 0
-        self.acceptance_radius = 0.3
+        self.acceptance_radius = 0.5 # 👑 略微增大，配合前瞻点实现平滑切弯
         self.is_mission_finished = False
         
-        # 👑 新增：保存目标偏航角
+        # 👑 丝滑导航核心参数
+        self.look_ahead_dist = 0.6 # 前瞻距离（胡萝卜距离），越大越平滑，越小越贴合路径
         self.target_yaw = 0.0 
+        self.smoothed_target_yaw = 0.0
+        self.yaw_initialized = False
 
         # QoS profiles
         qos_profile_pub = QoSProfile(
@@ -79,6 +82,14 @@ class QuadrotorMPC(Node):
         q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
         q_enu /= np.linalg.norm(q_enu)
         self.vehicle_attitude = q_enu.astype(float)
+        
+        # 👑 魔法：在起飞瞬间记录真实航向，防止起跳时猛回头喵
+        if not self.yaw_initialized:
+            qw, qx, qy, qz = self.vehicle_attitude
+            current_yaw = math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+            self.target_yaw = current_yaw
+            self.smoothed_target_yaw = current_yaw
+            self.yaw_initialized = True
 
     def vehicle_local_position_callback(self, msg):
         self.vehicle_local_position[0] = msg.y
@@ -100,43 +111,58 @@ class QuadrotorMPC(Node):
 
         if self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD and not self.is_mission_finished:
             if self.current_wp_index < len(self.waypoints):
-                target = self.waypoints[self.current_wp_index]
-                self.setpoint_position[0] = target[0]
-                self.setpoint_position[1] = target[1]
-                self.setpoint_position[2] = target[2]
+                # 1. 确定当前段的起点和终点
+                p_prev = np.array(self.waypoints[self.current_wp_index-1][:3]) if self.current_wp_index > 0 else self.vehicle_local_position
+                p_target = np.array(self.waypoints[self.current_wp_index][:3])
                 
-                dx = self.vehicle_local_position[0] - target[0]
-                dy = self.vehicle_local_position[1] - target[1]
-                dz = self.vehicle_local_position[2] - target[2]
-                distance = math.sqrt(dx**2 + dy**2 + dz**2)
+                # 2. 计算航段向量和胡萝卜点 (Carrot Point)
+                segment_vec = p_target - p_prev
+                seg_len = np.linalg.norm(segment_vec)
                 
-                # 👑 魔法1：计算飞行方向（偏航角）
-                dir_x = target[0] - self.vehicle_local_position[0]
-                dir_y = target[1] - self.vehicle_local_position[1]
-                dist_2d = math.hypot(dir_x, dir_y)
-                
-                # 距离大于0.2米时才更新朝向，避免靠近航点时机头乱甩喵
-                if dist_2d > 0.2:
-                    self.target_yaw = math.atan2(dir_y, dir_x)
+                if seg_len > 0.1:
+                    seg_dir = segment_vec / seg_len
+                    # 无人机在航段上的投影进度
+                    drone_vec = self.vehicle_local_position - p_prev
+                    progress = np.dot(drone_vec, seg_dir)
+                    
+                    # 沿着航段向前看一段距离作为胡萝卜点
+                    carrot_progress = min(progress + self.look_ahead_dist, seg_len)
+                    carrot_point = p_prev + seg_dir * carrot_progress
+                    
+                    # 设定 MPC 追踪这个滑动的点，而不是死航点喵！
+                    self.setpoint_position = carrot_point
+                    
+                    # 锁定航向为航段方向
+                    self.target_yaw = math.atan2(seg_dir[1], seg_dir[0])
+                else:
+                    self.setpoint_position = p_target
 
-                if distance < self.acceptance_radius:
+                # 3. 检查是否切换航点（离真正航点足够近了）
+                dist_to_wp = np.linalg.norm(self.vehicle_local_position - p_target)
+                if dist_to_wp < self.acceptance_radius:
                     self.current_wp_index += 1
+                    print(f"Switching to waypoint {self.current_wp_index}...")
             else:
                 self.current_wp_index = 1
 
-        # 👑 魔法2：计算当前偏航角与转向指令（P控制器接管）
+        # 👑 魔法2：平滑偏航角指令（Low-pass Filter）
+        alpha_yaw = 0.1 # 越小越丝滑，越大转向越灵敏喵
+        yaw_err = self.target_yaw - self.smoothed_target_yaw
+        yaw_err = (yaw_err + math.pi) % (2.0 * math.pi) - math.pi
+        self.smoothed_target_yaw += alpha_yaw * yaw_err
+
         qw, qx, qy, qz = self.vehicle_attitude
         current_yaw = math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
         
-        # 计算角度误差，并限制在 -PI 到 PI 之间
-        yaw_error = self.target_yaw - current_yaw
+        # 计算角度反馈误差
+        yaw_error = self.smoothed_target_yaw - current_yaw
         yaw_error = (yaw_error + math.pi) % (2.0 * math.pi) - math.pi
         
-        # P控制器增益（如果转得太快/慢，调这个数喵！推荐1.0~2.5）
+        # P控制器增益
         k_yaw = 2.0 
         yaw_rate_cmd = k_yaw * yaw_error
         
-        # 限制最大转向速度为 1.0 rad/s，避免无人机抽搐
+        # 限制最大转向速度
         yaw_rate_cmd = np.clip(yaw_rate_cmd, -1.0, 1.0)
 
 
@@ -174,3 +200,6 @@ def main(args=None):
     rclpy.spin(quadrotor_mpc)
     quadrotor_mpc.destroy_node()
     rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

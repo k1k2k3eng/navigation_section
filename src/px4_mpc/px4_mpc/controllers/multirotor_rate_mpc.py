@@ -79,14 +79,6 @@ class MultirotorRateMPC():
         Q_e = 2*np.diag([3e2, 3e2, 3e2, 1e2, 1e2, 1e2, 0.0, 0.0, 0.0, 0.0])
         R_mat = 2*np.diag([5e1, 5e2, 5e2, 5e2])
 
-        # TODO: How do you add terminal costs?
-
-        # the 'EXTERNAL' cost type can be used to define general cost terms
-        # NOTE: This leads to additional (exact) hessian contributions when using GAUSS_NEWTON hessian.
-        # ocp.cost.cost_type = 'EXTERNAL'
-        # ocp.cost.cost_type_e = 'EXTERNAL'
-        # ocp.model.cost_expr_ext_cost = model.x.T @ Q_mat @ model.x + model.u.T @ R_mat @ model.u
-        # ocp.model.cost_expr_ext_cost_e = model.x.T @ Q_e @ model.x
 
         ocp.cost.cost_type = 'NONLINEAR_LS'
         ocp.cost.cost_type_e = 'NONLINEAR_LS'

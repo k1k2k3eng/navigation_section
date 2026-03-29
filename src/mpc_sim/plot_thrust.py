@@ -26,6 +26,8 @@ import os
 import argparse
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
@@ -118,7 +120,7 @@ def parse_rosbag(bag_path):
         df['time'] = df['timestamp'] - df['timestamp'].iloc[0]
     return df
 
-def plot_results(all_data, output_dir, file_formats=['png', 'pdf', 'eps', 'tiff']):
+def plot_results(all_data, output_dir, file_formats=['png', 'pdf', 'eps']):
     """
     Generate publication-quality plots.
     """
@@ -127,45 +129,75 @@ def plot_results(all_data, output_dir, file_formats=['png', 'pdf', 'eps', 'tiff'
         return
 
     # Set style for academic journals
-    sns.set_theme(style="whitegrid")
+    try:
+        sns.set_theme(style="whitegrid", font='serif')
+    except:
+        plt.style.use('seaborn-v0_8-whitegrid')
+    
     plt.rcParams.update({
+        "text.usetex": False,  # Set to True if LaTeX is installed
         "font.family": "serif",
-        "font.size": 12,
-        "axes.labelsize": 14,
-        "axes.titlesize": 16,
-        "xtick.labelsize": 12,
-        "ytick.labelsize": 12,
-        "legend.fontsize": 12,
-        "figure.titlesize": 18,
-        "savefig.dpi": 300
+        "font.serif": ["Times New Roman", "DejaVu Serif"],
+        "font.size": 11,
+        "axes.labelsize": 12,
+        "axes.titlesize": 14,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "figure.titlesize": 16,
+        "savefig.dpi": 300,
+        "axes.grid": True,
+        "grid.alpha": 0.3,
+        "grid.linestyle": '--'
     })
 
     # Combine all dataframes
     combined_df = pd.concat(all_data).reset_index(drop=True)
-
-    # Create the plot
-    fig, ax = plt.subplots(figsize=(10, 6))
-
     unique_bags = combined_df['bag_name'].unique()
-    
-    if len(unique_bags) > 1:
-        # Multiple bags: Plot each one as a separate line
-        sns.lineplot(data=combined_df, x='time', y='thrust_mag', hue='bag_name', style='mode', ax=ax)
-        plt.title('MPC vs PID Thrust Performance Comparison')
-    else:
-        # Single bag: Plot magnitude and components
-        mode = combined_df['mode'].iloc[0]
-        sns.lineplot(data=combined_df, x='time', y='thrust_mag', ax=ax, label=f'Total Thrust ({mode})')
-        sns.lineplot(data=combined_df, x='time', y='thrust_z', ax=ax, label='Thrust Z-axis', alpha=0.7, linestyle='--')
-        plt.title(f'Thrust Performance ({mode}): {unique_bags[0]}')
 
-    ax.set_xlabel('Time [s]')
-    ax.set_ylabel('Thrust [Normalized]')
-    ax.legend(loc='best', frameon=True)
+    # Create figure with two subplots: Magnitude and Components
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+    # Convert to numpy for compatibility
+    times = combined_df['time'].to_numpy()
+    thrust_mags = combined_df['thrust_mag'].to_numpy()
+
+    # 1. Plot Magnitude
+    if len(unique_bags) > 1:
+        for bag in unique_bags:
+            bag_df = combined_df[combined_df['bag_name'] == bag]
+            ax1.plot(bag_df['time'].to_numpy(), bag_df['thrust_mag'].to_numpy(), label=f"{bag} ({bag_df['mode'].iloc[0]})", linewidth=1.5)
+        ax1.set_title('Thrust Magnitude Comparison', fontweight='bold')
+    else:
+        mode = combined_df['mode'].iloc[0]
+        ax1.plot(times, thrust_mags, label=f'Total Thrust ({mode})', color='black', linewidth=2)
+        ax1.set_title(f'Thrust Performance: {unique_bags[0]}', fontweight='bold')
+
+    ax1.set_ylabel('Thrust Magnitude [Normalized]')
+    ax1.legend(loc='best', frameon=True, fancybox=True, framealpha=0.8)
+
+    # 2. Plot Components for the first/main bag
+    main_bag_df = combined_df[combined_df['bag_name'] == unique_bags[0]]
+    m_times = main_bag_df['time'].to_numpy()
+    tx = main_bag_df['thrust_x'].to_numpy()
+    ty = main_bag_df['thrust_y'].to_numpy()
+    tz = main_bag_df['thrust_z'].to_numpy()
+
+    ax2.plot(m_times, tx, label='$T_x$', alpha=0.8, linestyle='-', linewidth=1.2)
+    ax2.plot(m_times, ty, label='$T_y$', alpha=0.8, linestyle='-', linewidth=1.2)
+    ax2.plot(m_times, tz, label='$T_z$', alpha=0.8, linestyle='--', linewidth=1.5)
+    
+    ax2.set_title('Thrust Vector Components', fontweight='bold')
+    ax2.set_xlabel('Time [s]')
+    ax2.set_ylabel('Thrust Components')
+    ax2.legend(loc='best', frameon=True, fancybox=True, framealpha=0.8)
+
+    # Adjust layout
+    plt.tight_layout()
 
     # Save plots
     os.makedirs(output_dir, exist_ok=True)
-    base_name = 'thrust_analysis'
+    base_name = 'thrust_academic_analysis'
     if len(unique_bags) == 1:
         base_name += f"_{unique_bags[0]}"
     
@@ -173,6 +205,17 @@ def plot_results(all_data, output_dir, file_formats=['png', 'pdf', 'eps', 'tiff'
         save_path = os.path.join(output_dir, f"{base_name}.{fmt}")
         plt.savefig(save_path, format=fmt, bbox_inches='tight', dpi=300)
         print(f"Saved: {save_path}")
+
+    # Energy analysis (simplified)
+    # Energy is roughly proportional to sum of squared thrusts over time
+    if len(unique_bags) > 0:
+        print("\n--- Energy Analysis Summary ---")
+        for bag in unique_bags:
+            df = combined_df[combined_df['bag_name'] == bag]
+            # Simple trapezoidal integration for energy proxy (T^2 * dt)
+            dt = df['time'].diff().mean()
+            energy_proxy = (df['thrust_mag']**2).sum() * dt
+            print(f"Bag: {bag:20} | Mode: {df['mode'].iloc[0]:4} | Energy Proxy: {energy_proxy:.4f}")
 
     print(f"\nPlots generated in: {os.path.abspath(output_dir)}")
     plt.show()
@@ -193,12 +236,23 @@ def main():
     parser = argparse.ArgumentParser(description='Process ROS 2 bags and plot thrust data for publication.')
     parser.add_argument('--input', type=str, default=None, help='Path to bag folder or parent directory.')
     parser.add_argument('--output', type=str, default='plots', help='Directory to save plots.')
-    parser.add_argument('--formats', nargs='+', default=['png', 'pdf', 'eps', 'tiff'], help='Output formats.')
+    parser.add_argument('--formats', nargs='+', default=['png', 'pdf', 'eps'], help='Output formats.')
     
     args = parser.parse_args()
 
-    # If no input, use current directory
-    search_path = args.input if args.input else '.'
+    # Determine search path: 
+    # 1. Use --input if provided
+    # 2. Else check 'mpc_energy_test' in current directory
+    # 3. Else use current directory '.'
+    if args.input:
+        search_path = args.input
+    else:
+        energy_test_path = Path('mpc_energy_test')
+        if energy_test_path.exists() and energy_test_path.is_dir():
+            search_path = str(energy_test_path)
+            print(f"Defaulting to mpc_energy_test directory: {search_path}")
+        else:
+            search_path = '.'
     
     bag_folders = find_bag_folders(search_path)
 
@@ -207,26 +261,32 @@ def main():
         return
 
     selected_bags = []
+    # If we found bags in mpc_energy_test or specified path, and it's not a manual interactive session
     if len(bag_folders) > 1 and not args.input:
-        # Multiple bags found in current dir, let user choose
-        print("\nMultiple ROS bags found:")
-        for i, folder in enumerate(bag_folders):
-            print(f"[{i}] {folder.name}")
-        print(f"[{len(bag_folders)}] ALL (Plot all in one graph)")
-        
-        try:
-            choice = input(f"\nSelect a bag to plot (0-{len(bag_folders)}): ").strip()
-            idx = int(choice)
-            if idx == len(bag_folders):
+        # Check if we are in an interactive environment (this is a bit hacky but works for CLI)
+        if os.isatty(0):
+            print("\nMultiple ROS bags found:")
+            for i, folder in enumerate(bag_folders):
+                print(f"[{i}] {folder.name}")
+            print(f"[{len(bag_folders)}] ALL (Plot all in one graph)")
+            
+            try:
+                choice = input(f"\nSelect a bag to plot (0-{len(bag_folders)}): ").strip()
+                idx = int(choice)
+                if idx == len(bag_folders):
+                    selected_bags = bag_folders
+                elif 0 <= idx < len(bag_folders):
+                    selected_bags = [bag_folders[idx]]
+                else:
+                    print("Invalid selection. Using all bags.")
+                    selected_bags = bag_folders
+            except (ValueError, EOFError):
+                print("Invalid input or non-interactive session. Using all bags.")
                 selected_bags = bag_folders
-            elif 0 <= idx < len(bag_folders):
-                selected_bags = [bag_folders[idx]]
-            else:
-                print("Invalid selection.")
-                return
-        except ValueError:
-            print("Invalid input.")
-            return
+        else:
+            # Non-interactive: use all found bags
+            print(f"Found {len(bag_folders)} bags. Processing all.")
+            selected_bags = bag_folders
     else:
         # Single bag found or input path specified
         selected_bags = bag_folders
