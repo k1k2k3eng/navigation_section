@@ -37,85 +37,117 @@ from rosbags.typesys import get_types_from_msg, get_typestore, Stores
 # Get the latest typestore
 typestore = get_typestore(Stores.LATEST)
 
-# Define PX4 message types for rosbags
+# Define PX4 message types for rosbags (Match exactly with .msg files)
 VEHICLE_RATES_SETPOINT_MSG = """
 uint64 timestamp
 float32 roll
 float32 pitch
 float32 yaw
 float32[3] thrust_body
-float32 reset_integral
+bool reset_integral
 """
 
 VEHICLE_THRUST_SETPOINT_MSG = """
 uint64 timestamp
+uint64 timestamp_sample
 float32[3] xyz
 """
 
+VEHICLE_ATTITUDE_SETPOINT_MSG = """
+uint64 timestamp
+float32 yaw_sp_move_rate
+float32[4] q_d
+float32[3] thrust_body
+bool reset_integral
+bool fw_control_yaw_wheel
+"""
+
 # Register the custom types
-add_types = get_types_from_msg(VEHICLE_RATES_SETPOINT_MSG, 'px4_msgs/msg/VehicleRatesSetpoint')
-typestore.register(add_types)
-add_types = get_types_from_msg(VEHICLE_THRUST_SETPOINT_MSG, 'px4_msgs/msg/VehicleThrustSetpoint')
-typestore.register(add_types)
+typestore.register(get_types_from_msg(VEHICLE_RATES_SETPOINT_MSG, 'px4_msgs/msg/VehicleRatesSetpoint'))
+typestore.register(get_types_from_msg(VEHICLE_THRUST_SETPOINT_MSG, 'px4_msgs/msg/VehicleThrustSetpoint'))
+typestore.register(get_types_from_msg(VEHICLE_ATTITUDE_SETPOINT_MSG, 'px4_msgs/msg/VehicleAttitudeSetpoint'))
 
 def parse_rosbag(bag_path):
     """
     Parse a single ROS 2 bag file and extract thrust data.
     """
     data = []
-    bag_name = Path(bag_path).name
+    bag_path_obj = Path(bag_path)
+    bag_name = bag_path_obj.name
+    
     try:
-        with AnyReader([Path(bag_path)], default_typestore=typestore) as reader:
+        with AnyReader([bag_path_obj], default_typestore=typestore) as reader:
             # Possible topics for thrust data (Input for MPC, Output for PID)
             candidate_topics = [
                 '/fmu/in/vehicle_rates_setpoint',
                 '/fmu/out/vehicle_rates_setpoint',
-                '/fmu/out/vehicle_thrust_setpoint'
+                '/fmu/out/vehicle_thrust_setpoint',
+                '/fmu/out/vehicle_attitude_setpoint'
             ]
             
             # Find which topics actually exist in this bag
-            connections = [c for c in reader.connections if c.topic in candidate_topics]
-            if not connections:
-                print(f"Warning: No thrust-related topics found in {bag_path}")
+            available_connections = [c for c in reader.connections if c.topic in candidate_topics]
+            
+            if not available_connections:
+                print(f"Warning: No thrust-related topics found in {bag_name}")
                 return None
 
-            # Sort connections to prioritize certain topics if multiple exist
-            # (e.g., prefer RatesSetpoint over ThrustSetpoint if both are there)
-            connections.sort(key=lambda c: candidate_topics.index(c.topic))
-            best_connection = connections[0]
-            print(f"  Reading from topic: {best_connection.topic}")
+            # Prioritize topics: we prefer the most "final" setpoint available
+            # We use the order in candidate_topics as priority
+            available_connections.sort(key=lambda c: candidate_topics.index(c.topic))
+            best_connection = available_connections[0]
+            print(f"  Reading {bag_name} from topic: {best_connection.topic}")
 
             for connection, timestamp, rawdata in reader.messages(connections=[best_connection]):
-                msg = reader.deserialize(rawdata, connection.msgtype)
-                
-                # Extract data based on message type
-                if 'VehicleRatesSetpoint' in connection.msgtype:
-                    tx, ty, tz = msg.thrust_body
-                elif 'VehicleThrustSetpoint' in connection.msgtype:
-                    tx, ty, tz = msg.xyz
-                else:
+                try:
+                    msg = reader.deserialize(rawdata, connection.msgtype)
+                    
+                    # Extract data based on message type
+                    if 'VehicleRatesSetpoint' in connection.msgtype:
+                        # thrust_body is float32[3]
+                        tx, ty, tz = msg.thrust_body
+                    elif 'VehicleThrustSetpoint' in connection.msgtype:
+                        # xyz is float32[3]
+                        tx, ty, tz = msg.xyz
+                    elif 'VehicleAttitudeSetpoint' in connection.msgtype:
+                        # thrust_body is float32[3]
+                        tx, ty, tz = msg.thrust_body
+                    else:
+                        continue
+                    
+                    thrust_magnitude = np.sqrt(tx**2 + ty**2 + tz**2)
+                    
+                    # Determine mode: check folder path or topic
+                    mode = 'MPC'
+                    full_path_upper = str(bag_path_obj.absolute()).upper()
+                    if 'PID' in full_path_upper:
+                        mode = 'PID'
+                    elif 'OUT' in connection.topic.upper():
+                        mode = 'PID'
+                    
+                    data.append({
+                        'timestamp': msg.timestamp / 1e6,
+                        'thrust_x': tx,
+                        'thrust_y': ty,
+                        'thrust_z': tz,
+                        'thrust_mag': thrust_magnitude,
+                        'bag_name': bag_name,
+                        'mode': mode
+                    })
+                except Exception as e:
+                    # Skip corrupted messages within a bag
                     continue
-                
-                thrust_magnitude = np.sqrt(tx**2 + ty**2 + tz**2)
-                
-                data.append({
-                    'timestamp': msg.timestamp / 1e6,
-                    'thrust_x': tx,
-                    'thrust_y': ty,
-                    'thrust_z': tz,
-                    'thrust_mag': thrust_magnitude,
-                    'bag_name': bag_name,
-                    'mode': 'PID' if 'out' in connection.topic else 'MPC'
-                })
+                    
     except Exception as e:
-        print(f"Error reading {bag_path}: {e}")
+        print(f"Error reading bag {bag_name}: {e}")
         return None
 
     if not data:
+        print(f"No valid messages found in {bag_name}")
         return None
         
     df = pd.DataFrame(data)
-    # Normalize timestamp to start from 0
+    # Normalize timestamp to start from 0 for this bag
     if not df.empty:
         df['time'] = df['timestamp'] - df['timestamp'].iloc[0]
     return df
@@ -224,13 +256,9 @@ def find_bag_folders(base_path):
     """Recursively find folders containing metadata.yaml."""
     bags = []
     p = Path(base_path)
-    if (p / 'metadata.yaml').exists():
-        bags.append(p)
-    else:
-        for item in p.iterdir():
-            if item.is_dir() and (item / 'metadata.yaml').exists():
-                bags.append(item)
-    return sorted(bags)
+    for metadata in p.rglob('metadata.yaml'):
+        bags.append(metadata.parent)
+    return sorted(list(set(bags)))
 
 def main():
     parser = argparse.ArgumentParser(description='Process ROS 2 bags and plot thrust data for publication.')
@@ -242,17 +270,11 @@ def main():
 
     # Determine search path: 
     # 1. Use --input if provided
-    # 2. Else check 'mpc_energy_test' in current directory
-    # 3. Else use current directory '.'
+    # 2. Else use current directory '.' (will find all bags in current dir)
     if args.input:
         search_path = args.input
     else:
-        energy_test_path = Path('mpc_energy_test')
-        if energy_test_path.exists() and energy_test_path.is_dir():
-            search_path = str(energy_test_path)
-            print(f"Defaulting to mpc_energy_test directory: {search_path}")
-        else:
-            search_path = '.'
+        search_path = '.'
     
     bag_folders = find_bag_folders(search_path)
 
