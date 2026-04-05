@@ -75,7 +75,9 @@ class MultirotorRateMPC():
         ocp.dims.N = N_horizon
 
         # set cost
-        Q_mat = 2*np.diag([1e1, 1e1, 1e1, 1e1, 1e1, 1e1, 0.0, 0.1, 0.1, 0.1])
+        # 👑 优化权重：增加位置追踪权重 (1e1 -> 2e1)，减小速度惩罚 (1e1 -> 5.0)
+        # 状态向量：[px, py, pz, vx, vy, vz, qw, qx, qy, qz]
+        Q_mat = 2*np.diag([2e1, 2e1, 2e1, 5.0, 5.0, 5.0, 0.0, 0.1, 0.1, 0.1])
         Q_e = 2*np.diag([3e2, 3e2, 3e2, 1e2, 1e2, 1e2, 0.0, 0.0, 0.0, 0.0])
         R_mat = 2*np.diag([5e1, 5e2, 5e2, 5e2])
 

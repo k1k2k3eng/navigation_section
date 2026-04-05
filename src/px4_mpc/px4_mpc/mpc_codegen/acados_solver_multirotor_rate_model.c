@@ -517,12 +517,12 @@ void multirotor_rate_model_acados_setup_nlp_in(multirotor_rate_model_solver_caps
 
    double* W_0 = calloc(NY0*NY0, sizeof(double));
     // change only the non-zero elements:
-    W_0[0+(NY0) * 0] = 20;
-    W_0[1+(NY0) * 1] = 20;
-    W_0[2+(NY0) * 2] = 20;
-    W_0[3+(NY0) * 3] = 20;
-    W_0[4+(NY0) * 4] = 20;
-    W_0[5+(NY0) * 5] = 20;
+    W_0[0+(NY0) * 0] = 40;
+    W_0[1+(NY0) * 1] = 40;
+    W_0[2+(NY0) * 2] = 40;
+    W_0[3+(NY0) * 3] = 10;
+    W_0[4+(NY0) * 4] = 10;
+    W_0[5+(NY0) * 5] = 10;
     W_0[7+(NY0) * 7] = 0.2;
     W_0[8+(NY0) * 8] = 0.2;
     W_0[9+(NY0) * 9] = 0.2;
@@ -542,12 +542,12 @@ void multirotor_rate_model_acados_setup_nlp_in(multirotor_rate_model_solver_caps
     free(yref);
     double* W = calloc(NY*NY, sizeof(double));
     // change only the non-zero elements:
-    W[0+(NY) * 0] = 20;
-    W[1+(NY) * 1] = 20;
-    W[2+(NY) * 2] = 20;
-    W[3+(NY) * 3] = 20;
-    W[4+(NY) * 4] = 20;
-    W[5+(NY) * 5] = 20;
+    W[0+(NY) * 0] = 40;
+    W[1+(NY) * 1] = 40;
+    W[2+(NY) * 2] = 40;
+    W[3+(NY) * 3] = 10;
+    W[4+(NY) * 4] = 10;
+    W[5+(NY) * 5] = 10;
     W[7+(NY) * 7] = 0.2;
     W[8+(NY) * 8] = 0.2;
     W[9+(NY) * 9] = 0.2;
