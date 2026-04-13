@@ -9,6 +9,8 @@ Panels:
         - /Grid1
         - /TF1
         - /Path1
+        - /Gas Leak1
+        - /Gas Status1
       Splitter Ratio: 0.5
     Tree Height: 557
 Visualization Manager:
@@ -43,6 +45,32 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /mpc/path
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Gas Leak
+      Namespaces:
+        gas_leak: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /mpc/gas_leak_marker
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Gas Status
+      Namespaces:
+        gas_status: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /mpc/gas_status_marker
       Value: true
   Enabled: true
   Global Options:

@@ -1,0 +1,7 @@
+builtin_interfaces/Time stamp
+string mission_state
+uint32 active_waypoint_index
+bool mission_finished
+geometry_msgs/Point target_position
+geometry_msgs/Vector3 target_velocity
+float32 target_yaw

@@ -1,0 +1,11 @@
+builtin_interfaces/Time stamp
+string source_frame_id
+bool crack_detected
+float32 confidence
+string class_name
+float32 center_x
+float32 center_y
+float32 bbox_xmin
+float32 bbox_ymin
+float32 bbox_xmax
+float32 bbox_ymax

@@ -1,0 +1,5 @@
+builtin_interfaces/Time stamp
+string source_frame_id
+geometry_msgs/Point vehicle_position
+geometry_msgs/Point leak_position
+float32 concentration

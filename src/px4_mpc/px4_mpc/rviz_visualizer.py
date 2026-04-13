@@ -8,6 +8,9 @@ from geometry_msgs.msg import PoseStamped, TransformStamped
 from tf2_ros import TransformBroadcaster
 from px4_msgs.msg import VehicleLocalPosition, VehicleAttitude
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
+from visualization_msgs.msg import Marker
+
+from mpc_msgs.msg import GasConcentration
 
 class RVizVisualizer(Node):
     def __init__(self):
@@ -31,9 +34,14 @@ class RVizVisualizer(Node):
         self.attitude_sub = self.create_subscription(
             VehicleAttitude, '/fmu/out/vehicle_attitude', 
             self.vehicle_attitude_callback, qos_profile)
+        self.gas_concentration_sub = self.create_subscription(
+            GasConcentration, '/perception/gas_concentration',
+            self.gas_concentration_callback, 10)
 
         # Publishers
         self.path_pub = self.create_publisher(Path, '/mpc/path', 10)
+        self.gas_leak_marker_pub = self.create_publisher(Marker, '/mpc/gas_leak_marker', 10)
+        self.gas_status_marker_pub = self.create_publisher(Marker, '/mpc/gas_status_marker', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # Path Data
@@ -42,6 +50,8 @@ class RVizVisualizer(Node):
         
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
+        self.leak_position = None
+        self.current_gas_concentration = 0.0
 
         # Timer for visualization update (20Hz is enough for RViz)
         self.create_timer(0.05, self.visual_timer_callback)
@@ -57,6 +67,14 @@ class RVizVisualizer(Node):
         q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
         q_enu /= np.linalg.norm(q_enu)
         self.vehicle_attitude = q_enu.astype(float)
+
+    def gas_concentration_callback(self, msg):
+        self.leak_position = np.array([
+            msg.leak_position.x,
+            msg.leak_position.y,
+            msg.leak_position.z
+        ], dtype=float)
+        self.current_gas_concentration = float(msg.concentration)
 
     def visual_timer_callback(self):
         now = self.get_clock().now().to_msg()
@@ -93,6 +111,52 @@ class RVizVisualizer(Node):
             self.path_msg.poses.pop(0)
             
         self.path_pub.publish(self.path_msg)
+        self.publish_gas_markers(now, rel_pos)
+
+    def publish_gas_markers(self, now, rel_pos):
+        if self.leak_position is None:
+            return
+
+        leak_rel_pos = self.leak_position - self.map_origin
+
+        leak_marker = Marker()
+        leak_marker.header.stamp = now
+        leak_marker.header.frame_id = "map"
+        leak_marker.ns = "gas_leak"
+        leak_marker.id = 0
+        leak_marker.type = Marker.SPHERE
+        leak_marker.action = Marker.ADD
+        leak_marker.pose.position.x = float(leak_rel_pos[0])
+        leak_marker.pose.position.y = float(leak_rel_pos[1])
+        leak_marker.pose.position.z = float(leak_rel_pos[2])
+        leak_marker.pose.orientation.w = 1.0
+        leak_marker.scale.x = 0.35
+        leak_marker.scale.y = 0.35
+        leak_marker.scale.z = 0.35
+        leak_marker.color.a = 0.85
+        leak_marker.color.r = 1.0
+        leak_marker.color.g = 0.45
+        leak_marker.color.b = 0.05
+        self.gas_leak_marker_pub.publish(leak_marker)
+
+        status_marker = Marker()
+        status_marker.header.stamp = now
+        status_marker.header.frame_id = "map"
+        status_marker.ns = "gas_status"
+        status_marker.id = 1
+        status_marker.type = Marker.TEXT_VIEW_FACING
+        status_marker.action = Marker.ADD
+        status_marker.pose.position.x = float(rel_pos[0])
+        status_marker.pose.position.y = float(rel_pos[1])
+        status_marker.pose.position.z = float(rel_pos[2] + 0.8)
+        status_marker.pose.orientation.w = 1.0
+        status_marker.scale.z = 0.3
+        status_marker.color.a = 1.0
+        status_marker.color.r = 0.2
+        status_marker.color.g = 0.95
+        status_marker.color.b = 0.25
+        status_marker.text = f"gas: {self.current_gas_concentration:.3f}"
+        self.gas_status_marker_pub.publish(status_marker)
 
 def main(args=None):
     rclpy.init(args=args)

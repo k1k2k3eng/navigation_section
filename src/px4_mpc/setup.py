@@ -24,6 +24,12 @@ setup(
     entry_points={
         'console_scripts': [
                 'mpc_quadrotor = px4_mpc.mpc_quadrotor:main',
+                'decision_brain = px4_mpc.decision_brain:main',
+                'gas_plume_simulator = px4_mpc.gas_plume_simulator:main',
+                'gas_laser_detection = px4_mpc.gas_laser_detection_node:main',
+                'mpc_controller = px4_mpc.mpc_controller_node:main',
+                'pipeline_detection = px4_mpc.detection_node:main',
+                'mission_transport = px4_mpc.transport_node:main',
                 'mpc_spacecraft = px4_mpc.mpc_spacecraft:main',
                 'test_setpoints = px4_mpc.test.test_setpoints:main',
                 'rviz_pos_marker = px4_mpc.rviz_pos_marker:main',

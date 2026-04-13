@@ -1,0 +1,17 @@
+builtin_interfaces/Time stamp
+string source_frame_id
+string modality
+string event_type
+bool detected
+float32 confidence
+float32 scalar_value
+bool position_valid
+geometry_msgs/Point target_position
+float32 hold_time_sec
+float32 recommended_speed
+float32 center_x
+float32 center_y
+float32 bbox_xmin
+float32 bbox_ymin
+float32 bbox_xmax
+float32 bbox_ymax

@@ -7,15 +7,21 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/GasConcentration.msg"
+  "msg/MissionCommand.msg"
+  "msg/PerceptionEvent.msg"
+  "msg/PipelineDetection.msg"
   "srv/SetPose.srv"
-  DEPENDENCIES geometry_msgs
+  DEPENDENCIES builtin_interfaces geometry_msgs std_msgs
  )
 # ament_target_dependencies(${PROJECT_NAME} geometry_msgs)
 rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
