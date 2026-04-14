@@ -18,5 +18,8 @@ __pycache__/
 plots/
 test_plots/
 
+# Runtime archives
+src/px4_mpc/px4_mpc/archive/
+
 # OS specific
 .DS_Store
